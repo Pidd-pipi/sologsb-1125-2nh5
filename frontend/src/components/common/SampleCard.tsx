@@ -82,6 +82,9 @@ export function SampleCard({
           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 'auto', pt: 1 }}>
             <Chip size="small" variant="outlined" label={`切片 ${sectionCount}`} />
             <Chip size="small" variant="outlined" label={`检测 ${analysisCount}`} />
+            {sample.storage === 'loan-out' ? (
+              <Chip size="small" color="warning" label="外借中" />
+            ) : null}
             {missing.map((m) => (
               <Chip key={m} size="small" color="warning" label={m} />
             ))}

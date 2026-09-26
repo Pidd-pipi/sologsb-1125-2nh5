@@ -25,6 +25,7 @@ import FieldGroup from '../components/common/FieldGroup';
 import { useLocalDraft } from '../hooks/useLocalDraft';
 import { useSampleStore } from '../stores/sampleStore';
 import { useToastStore } from '../stores/uiStore';
+import { activeLoanOf } from '../types/loan';
 import {
   ANALYSIS_METHODS,
   ANALYSIS_METHOD_LABELS,
@@ -53,6 +54,7 @@ export default function Analysis() {
   const samples = useSampleStore((s) => s.samples);
   const sections = useSampleStore((s) => s.sections);
   const analysis = useSampleStore((s) => s.analysis);
+  const loans = useSampleStore((s) => s.loans);
   const addAnalysis = useSampleStore((s) => s.addAnalysis);
   const notify = useToastStore((s) => s.notify);
 
@@ -86,6 +88,10 @@ export default function Analysis() {
   const submit = async () => {
     if (!value.sampleId) {
       setError('请先选择关联样本');
+      return;
+    }
+    if (activeLoanOf(loans, value.sampleId)) {
+      setError('该样本外借中，归还前不能新建检测记录');
       return;
     }
     if (value.target === 'section' && !value.sectionId) {
@@ -139,6 +145,7 @@ export default function Analysis() {
                     {samples.map((s) => (
                       <MenuItem key={s.id} value={s.id}>
                         {s.sampleNo}
+                        {activeLoanOf(loans, s.id) ? '（外借中）' : ''}
                       </MenuItem>
                     ))}
                   </Select>

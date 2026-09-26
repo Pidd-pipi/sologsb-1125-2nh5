@@ -47,6 +47,7 @@ import {
   STORAGE_LABELS,
   WEATHERING_LABELS,
 } from '../types/sample';
+import { activeLoanOf, isLoanOverdue } from '../types/loan';
 import { FIND_ENVIRONMENT_LABELS, COORDINATE_SOURCE_LABELS } from '../types/find';
 import { classifyByAnalysis, evaluateThresholds } from '../utils/classify';
 import { formatDate, formatNumber, formatWeight } from '../utils/format';
@@ -59,15 +60,24 @@ export default function Detail() {
   const finds = useSampleStore((s) => s.finds);
   const sections = useSampleStore((s) => s.sections);
   const analysis = useSampleStore((s) => s.analysis);
+  const loans = useSampleStore((s) => s.loans);
   const addSection = useSampleStore((s) => s.addSection);
   const addAnalysis = useSampleStore((s) => s.addAnalysis);
-  const updateSample = useSampleStore((s) => s.updateSample);
+  const addLoan = useSampleStore((s) => s.addLoan);
+  const returnLoan = useSampleStore((s) => s.returnLoan);
   const notify = useToastStore((s) => s.notify);
 
   const sample = useMemo(() => samples.find((s) => s.id === id), [samples, id]);
   const find = useMemo(() => finds.find((f) => f.sampleId === id), [finds, id]);
   const mySections = useMemo(() => sections.filter((s) => s.sampleId === id), [sections, id]);
   const myAnalysis = useMemo(() => analysis.filter((a) => a.sampleId === id), [analysis, id]);
+  const myLoans = useMemo(() => loans.filter((l) => l.sampleId === id), [loans, id]);
+  const activeLoan = useMemo(() => activeLoanOf(loans, id), [loans, id]);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const [loanDraft, setLoanDraft] = useState({ borrower: '', contact: '', loanedAt: today, dueDate: '' });
+  const [returnDraft, setReturnDraft] = useState({ returnedAt: today, receiver: '' });
+  const [loanError, setLoanError] = useState<string | null>(null);
 
   const [sectionDraft, setSectionDraft] = useState({
     sectionNo: '',
@@ -132,6 +142,42 @@ export default function Detail() {
     notify(`已为 ${sample.sampleNo} 写入一条检测记录`);
   };
 
+  const submitLoan = async () => {
+    if (!loanDraft.borrower.trim()) return setLoanError('请填写借阅人');
+    if (!loanDraft.contact.trim()) return setLoanError('请填写联系方式');
+    if (!loanDraft.dueDate) return setLoanError('请选择应还日期');
+    setLoanError(null);
+    await addLoan({
+      sampleId: sample.id,
+      borrower: loanDraft.borrower.trim(),
+      contact: loanDraft.contact.trim(),
+      loanedAt: loanDraft.loanedAt || today,
+      dueDate: loanDraft.dueDate,
+    });
+    notify(`已登记外借：${sample.sampleNo} → ${loanDraft.borrower.trim()}，应还 ${loanDraft.dueDate}`);
+    setLoanDraft({ borrower: '', contact: '', loanedAt: today, dueDate: '' });
+  };
+
+  const submitReturn = async () => {
+    if (!activeLoan) return;
+    if (!returnDraft.returnedAt) return setLoanError('请选择实际归还日期');
+    if (!returnDraft.receiver.trim()) return setLoanError('请填写接收人');
+    setLoanError(null);
+    // 逾期也照常收下，逾期记录随借阅流水保留
+    const overdue = returnDraft.returnedAt > activeLoan.dueDate;
+    await returnLoan(activeLoan.id, {
+      returnedAt: returnDraft.returnedAt,
+      receiver: returnDraft.receiver.trim(),
+    });
+    notify(
+      overdue
+        ? `${sample.sampleNo} 已逾期归还，逾期记录已保留`
+        : `${sample.sampleNo} 已归还，存放位置已恢复`,
+      overdue ? 'warning' : 'success',
+    );
+    setReturnDraft({ returnedAt: today, receiver: '' });
+  };
+
   return (
     <Stack spacing={2.5}>
       <Stack direction="row" spacing={1.5} alignItems="center">
@@ -156,16 +202,13 @@ export default function Detail() {
             <Stack spacing={1.5}>
               <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Typography variant="h6">基本信息</Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => {
-                    void updateSample(sample.id, { storage: sample.storage === 'loan-out' ? 'cabinet-a' : 'loan-out' });
-                    notify('已切换存放状态');
-                  }}
-                >
-                  切换存放状态
-                </Button>
+                {activeLoan ? (
+                  <Chip
+                    size="small"
+                    color="warning"
+                    label={isLoanOverdue(activeLoan) ? '外借中 · 已逾期' : '外借中'}
+                  />
+                ) : null}
               </Stack>
               <ClassificationBadge
                 category={sample.category}
@@ -274,6 +317,137 @@ export default function Detail() {
         </Grid>
       </Grid>
 
+      <Paper variant="outlined" sx={{ p: 2.5 }}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+          <Typography variant="h6">外借与归还</Typography>
+          {activeLoan ? <Chip size="small" color="warning" label="外借中" /> : null}
+          {activeLoan && isLoanOverdue(activeLoan) ? (
+            <Chip size="small" color="error" label="已逾期" />
+          ) : null}
+        </Stack>
+        {loanError ? (
+          <Alert severity="error" sx={{ mb: 1.5 }}>
+            {loanError}
+          </Alert>
+        ) : null}
+
+        {activeLoan ? (
+          <Stack spacing={1.5}>
+            <Alert severity="warning">
+              外借给 {activeLoan.borrower}（{activeLoan.contact}），借出 {activeLoan.loanedAt}，应还{' '}
+              {activeLoan.dueDate}。归还前不能修改重量、分类或存放位置，也不能新建切片和检测记录。
+            </Alert>
+            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap alignItems="center">
+              <TextField
+                id="return-date"
+                size="small"
+                type="date"
+                label="实际归还日期"
+                InputLabelProps={{ shrink: true }}
+                value={returnDraft.returnedAt}
+                onChange={(e) => setReturnDraft((d) => ({ ...d, returnedAt: e.target.value }))}
+                sx={{ width: 180 }}
+              />
+              <TextField
+                id="return-receiver"
+                size="small"
+                label="接收人"
+                value={returnDraft.receiver}
+                onChange={(e) => setReturnDraft((d) => ({ ...d, receiver: e.target.value }))}
+                sx={{ width: 180 }}
+              />
+              <Button variant="contained" color="warning" onClick={submitReturn} id="confirm-return">
+                确认归还
+              </Button>
+              {isLoanOverdue(activeLoan) ? (
+                <Typography variant="caption" color="error">
+                  已超过应还日期，逾期归还将照常收下并保留逾期记录。
+                </Typography>
+              ) : null}
+            </Stack>
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap alignItems="center">
+            <TextField
+              id="loan-borrower"
+              size="small"
+              label="借阅人"
+              value={loanDraft.borrower}
+              onChange={(e) => setLoanDraft((d) => ({ ...d, borrower: e.target.value }))}
+              sx={{ width: 160 }}
+            />
+            <TextField
+              id="loan-contact"
+              size="small"
+              label="联系方式"
+              value={loanDraft.contact}
+              onChange={(e) => setLoanDraft((d) => ({ ...d, contact: e.target.value }))}
+              sx={{ width: 200 }}
+            />
+            <TextField
+              id="loan-date"
+              size="small"
+              type="date"
+              label="借出日期"
+              InputLabelProps={{ shrink: true }}
+              value={loanDraft.loanedAt}
+              onChange={(e) => setLoanDraft((d) => ({ ...d, loanedAt: e.target.value }))}
+              sx={{ width: 170 }}
+            />
+            <TextField
+              id="loan-due-date"
+              size="small"
+              type="date"
+              label="应还日期"
+              InputLabelProps={{ shrink: true }}
+              value={loanDraft.dueDate}
+              onChange={(e) => setLoanDraft((d) => ({ ...d, dueDate: e.target.value }))}
+              sx={{ width: 170 }}
+            />
+            <Button variant="contained" onClick={submitLoan} id="register-loan">
+              登记外借
+            </Button>
+          </Stack>
+        )}
+
+        {myLoans.length ? (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+              借阅历史（{myLoans.length}）
+            </Typography>
+            <Stack spacing={1}>
+              {myLoans.map((l) => (
+                <Box
+                  key={l.id}
+                  sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5 }}
+                >
+                  <Stack direction="row" justifyContent="space-between" flexWrap="wrap" gap={1}>
+                    <Typography variant="subtitle2">
+                      {l.borrower} · {l.contact}
+                    </Typography>
+                    <Stack direction="row" spacing={0.75}>
+                      {!l.returnedAt ? <Chip size="small" color="warning" label="外借中" /> : null}
+                      {isLoanOverdue(l) ? (
+                        <Chip
+                          size="small"
+                          color="error"
+                          label={l.returnedAt ? '逾期归还' : '已逾期'}
+                        />
+                      ) : null}
+                    </Stack>
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary">
+                    借出 {l.loanedAt} · 应还 {l.dueDate}
+                    {l.returnedAt ? ` · 实还 ${l.returnedAt}（接收人 ${l.receiver}）` : ''}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          </>
+        ) : null}
+      </Paper>
+
       <Grid container spacing={2.5}>
         <Grid item xs={12} md={7}>
           <Paper variant="outlined" sx={{ p: 2.5 }}>
@@ -315,6 +489,9 @@ export default function Detail() {
             <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
               就地新增切片
             </Typography>
+            {activeLoan ? (
+              <Alert severity="warning">样本外借中，归还前不能新建切片。</Alert>
+            ) : (
             <Stack spacing={1.5}>
               <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
                 <TextField
@@ -408,6 +585,7 @@ export default function Detail() {
                 新增切片
               </Button>
             </Stack>
+            )}
           </Paper>
         </Grid>
 
@@ -450,6 +628,9 @@ export default function Detail() {
             <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
               就地录入检测数值
             </Typography>
+            {activeLoan ? (
+              <Alert severity="warning">样本外借中，归还前不能新建检测记录。</Alert>
+            ) : (
             <Stack spacing={1.5}>
               <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
                 <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -543,6 +724,7 @@ export default function Detail() {
                 {ANALYSIS_THRESHOLDS.map((t) => `${t.label} ${t.min}~${t.max}${t.unit}`).join(' · ')}
               </Typography>
             </Stack>
+            )}
           </Paper>
         </Grid>
       </Grid>

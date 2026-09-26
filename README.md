@@ -42,7 +42,7 @@ docker compose down
 | --- | --- | --- |
 | `/` | 样本总览：卡片流 + 分类/化学群/重量区间筛选与排序，缺坐标或缺切片显示角标 | MeteoriteSample |
 | `/samples/new` | 样本登记：编号生成、分类化学群、重量、存放位置，可补录发现地坐标并即时校验 | MeteoriteSample、FindRecord |
-| `/samples/:id` | 样本详情：基本信息 + 发现地摘要 + 切片列表 + 分析记录，可就地新增 | 四个模型 |
+| `/samples/:id` | 样本详情：基本信息 + 发现地摘要 + 外借登记/归还 + 切片列表 + 分析记录，可就地新增 | 五个模型 |
 | `/sections` | 切片库：按厚度与矿物占比筛选，回跳样本，批量标注质量 | ThinSection、MeteoriteSample |
 | `/analysis` | 分析检测：录入 Fa / Fs / Ni / 铁纹石带宽，实时分类建议与阈值命中说明 | AnalysisRecord、MeteoriteSample |
 | `/locations` | 发现地分布：SVG 网格按经纬度打点、按分类着色、点选弹出样本清单 | FindRecord、MeteoriteSample |
@@ -53,6 +53,7 @@ docker compose down
 - `types/find.ts` — **FindRecord**：id、关联样本、地名、国家地区、经纬度、坐标来源（GPS/文献）、发现环境、发现者
 - `types/section.ts` — **ThinSection**：id、切片编号、关联样本、厚度 μm、制样方式、矿物占比、显微照片清单
 - `types/analysis.ts` — **AnalysisRecord**：id、关联样本或切片、方法、橄榄石 Fa、辉石 Fs、Ni wt%、铁纹石带宽 mm、检测日期
+- `types/loan.ts` — **LoanRecord**：id、关联样本、借阅人、联系方式、借出/应还日期、借出前存放位置、实际归还日期与接收人（未归还时缺省）
 
 ## 目录结构
 
@@ -70,8 +71,8 @@ sologsb-1125/
     ├── vite.config.ts
     ├── public/favicon.svg
     └── src/
-        ├── types/{sample,find,section,analysis}.ts
-        ├── db/index.ts                 # Dexie 封装与 v1→v3 升级迁移
+        ├── types/{sample,find,section,analysis,loan}.ts
+        ├── db/index.ts                 # Dexie 封装与 v1→v4 升级迁移
         ├── stores/{sampleStore,uiStore}.ts
         ├── components/common/{SampleCard,Badge,FieldGroup,EmptyState,CoordinatePicker,AppShell}.tsx
         ├── hooks/{useSampleFilter,useLocalDraft,useRegionStats}.ts
@@ -82,11 +83,13 @@ sologsb-1125/
 
 ## 数据存储说明
 
-- **库名**：`gbmeteorite-db`；表：`samples`、`finds`、`sections`、`analysis`
+- **库名**：`gbmeteorite-db`；表：`samples`、`finds`、`sections`、`analysis`、`loans`
 - **版本迁移**：
   - v1 建 `samples` / `finds` / `sections`
   - v2 新增 `analysis` 表并加 `sampleId` 索引
   - v3 为 `samples` 补 `updatedAt` 字段并按 id 回填旧记录
+  - v4 新增 `loans` 表（外借登记）；旧档案没有借阅信息，照常打开
+- **外借规则**：详情页登记借阅人、联系方式与应还日期后样本置为「外借中」；未归还时锁定重量、分类与存放位置，且不能新建切片和检测记录；归还时记录实际日期与接收人，逾期照常收下并保留逾期记录，归还后恢复借出前的存放位置，可再次借出
 - **草稿**：`/samples/new` 与 `/analysis` 的表单草稿写入 localStorage（键前缀 `gbmeteorite:draft:`），切页自动恢复，提交后清理
 - 首次打开会灌入 3 份演示样本、2 条发现记录、2 张切片与 2 条检测记录，便于直接体验筛选与打点
 
