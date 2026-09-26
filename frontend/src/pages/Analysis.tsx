@@ -35,6 +35,7 @@ import {
 } from '../types/analysis';
 import { classifyByAnalysis, evaluateThresholds } from '../utils/classify';
 import { formatDate } from '../utils/format';
+import { isLoanActive } from '../types/loan';
 
 interface AnalysisDraft {
   sampleId: string;
@@ -53,6 +54,7 @@ export default function Analysis() {
   const samples = useSampleStore((s) => s.samples);
   const sections = useSampleStore((s) => s.sections);
   const analysis = useSampleStore((s) => s.analysis);
+  const loans = useSampleStore((s) => s.loans);
   const addAnalysis = useSampleStore((s) => s.addAnalysis);
   const notify = useToastStore((s) => s.notify);
 
@@ -79,6 +81,12 @@ export default function Analysis() {
     [sections, value.sampleId],
   );
 
+  const loanSampleIds = useMemo(
+    () => new Set(loans.filter(isLoanActive).map((l) => l.sampleId)),
+    [loans],
+  );
+  const selectedSampleOnLoan = !!value.sampleId && loanSampleIds.has(value.sampleId);
+
   const hits = evaluateThresholds(value);
   const advice = classifyByAnalysis(value);
   const outOfRange = hits.filter((h) => !h.inRange);
@@ -88,22 +96,31 @@ export default function Analysis() {
       setError('请先选择关联样本');
       return;
     }
+    if (loanSampleIds.has(value.sampleId)) {
+      setError('该样本外借中，归还前不能新建检测记录');
+      return;
+    }
     if (value.target === 'section' && !value.sectionId) {
       setError('检测对象为切片时必须选择一张切片');
       return;
     }
     setError(null);
-    await addAnalysis({
-      sampleId: value.sampleId,
-      sectionId: value.target === 'section' ? value.sectionId : undefined,
-      target: value.target,
-      method: value.method,
-      fa: Number(value.fa),
-      fs: Number(value.fs),
-      ni: Number(value.ni),
-      kamaciteBandwidth: Number(value.kamaciteBandwidth),
-      testedAt: value.testedAt,
-    });
+    try {
+      await addAnalysis({
+        sampleId: value.sampleId,
+        sectionId: value.target === 'section' ? value.sectionId : undefined,
+        target: value.target,
+        method: value.method,
+        fa: Number(value.fa),
+        fs: Number(value.fs),
+        ni: Number(value.ni),
+        kamaciteBandwidth: Number(value.kamaciteBandwidth),
+        testedAt: value.testedAt,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '写入检测记录失败');
+      return;
+    }
     clear();
     notify('检测记录已写入本地库');
     patch({ fa: 18.5, fs: 16, ni: 0.8, kamaciteBandwidth: 0.05 });
@@ -122,6 +139,11 @@ export default function Analysis() {
         <Alert severity="info">已从本地草稿恢复上次未提交的检测录入（localStorage 草稿键 analysis-entry）。</Alert>
       ) : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
+      {selectedSampleOnLoan ? (
+        <Alert severity="warning">
+          该样本外借中，归还前不能新建检测记录。请先到样本详情页办理归还。
+        </Alert>
+      ) : null}
 
       <Grid container spacing={2.5}>
         <Grid item xs={12} md={7}>
@@ -139,6 +161,7 @@ export default function Analysis() {
                     {samples.map((s) => (
                       <MenuItem key={s.id} value={s.id}>
                         {s.sampleNo}
+                        {loanSampleIds.has(s.id) ? '（外借中）' : ''}
                       </MenuItem>
                     ))}
                   </Select>
@@ -254,7 +277,13 @@ export default function Analysis() {
               </Stack>
 
               <Stack direction="row" spacing={1.5}>
-                <Button variant="contained" startIcon={<SaveIcon />} onClick={submit} id="save-analysis">
+                <Button
+                  variant="contained"
+                  startIcon={<SaveIcon />}
+                  onClick={submit}
+                  id="save-analysis"
+                  disabled={selectedSampleOnLoan}
+                >
                   保存检测记录
                 </Button>
                 <Button variant="outlined" onClick={reset}>

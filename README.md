@@ -53,6 +53,7 @@ docker compose down
 - `types/find.ts` — **FindRecord**：id、关联样本、地名、国家地区、经纬度、坐标来源（GPS/文献）、发现环境、发现者
 - `types/section.ts` — **ThinSection**：id、切片编号、关联样本、厚度 μm、制样方式、矿物占比、显微照片清单
 - `types/analysis.ts` — **AnalysisRecord**：id、关联样本或切片、方法、橄榄石 Fa、辉石 Fs、Ni wt%、铁纹石带宽 mm、检测日期
+- `types/loan.ts` — **LoanRecord**：id、关联样本、借阅人、联系方式、借出/应还/实际归还日期、借出前存放位置、接收人、逾期标记
 
 ## 目录结构
 
@@ -70,7 +71,7 @@ sologsb-1125/
     ├── vite.config.ts
     ├── public/favicon.svg
     └── src/
-        ├── types/{sample,find,section,analysis}.ts
+        ├── types/{sample,find,section,analysis,loan}.ts
         ├── db/index.ts                 # Dexie 封装与 v1→v3 升级迁移
         ├── stores/{sampleStore,uiStore}.ts
         ├── components/common/{SampleCard,Badge,FieldGroup,EmptyState,CoordinatePicker,AppShell}.tsx
@@ -82,11 +83,18 @@ sologsb-1125/
 
 ## 数据存储说明
 
-- **库名**：`gbmeteorite-db`；表：`samples`、`finds`、`sections`、`analysis`
+- **库名**：`gbmeteorite-db`；表：`samples`、`finds`、`sections`、`analysis`、`loans`
 - **版本迁移**：
   - v1 建 `samples` / `finds` / `sections`
   - v2 新增 `analysis` 表并加 `sampleId` 索引
   - v3 为 `samples` 补 `updatedAt` 字段并按 id 回填旧记录
+  - v4 新增 `loans` 表记录外借；旧档案没有借阅记录时无需迁移，照常打开
+- **外借流程**（样本详情页登记/归还）：
+  - 登记借阅人、联系方式、借出日期与应还日期后，样本存放位置变为「外借中」并显示外借角标
+  - 外借期间禁止修改重量、分类（含化学群）、存放位置，也不能新建切片和检测记录（store 层与表单同时拦截）
+  - 归还时填写实际归还日期与接收人：逾期照常收下，档案保留「已归还 · 逾期」标记
+  - 归还后自动恢复借出前的存放位置；同一份样本可反复借出，完整借阅历史保留在 `loans` 表
+  - 旧档案若只把存放位置标成「外借中」而无借阅记录，按在库处理，页面提供一次性「清除旧标记」入口
 - **草稿**：`/samples/new` 与 `/analysis` 的表单草稿写入 localStorage（键前缀 `gbmeteorite:draft:`），切页自动恢复，提交后清理
 - 首次打开会灌入 3 份演示样本、2 条发现记录、2 张切片与 2 条检测记录，便于直接体验筛选与打点
 

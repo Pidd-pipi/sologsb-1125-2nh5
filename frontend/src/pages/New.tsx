@@ -279,7 +279,7 @@ export default function New() {
                     value={value.storage}
                     onChange={(e) => patch({ storage: e.target.value as StorageLocation })}
                   >
-                    {STORAGE_LOCATIONS.map((s) => (
+                    {STORAGE_LOCATIONS.filter((s) => s !== 'loan-out').map((s) => (
                       <MenuItem key={s} value={s}>
                         {STORAGE_LABELS[s]}
                       </MenuItem>

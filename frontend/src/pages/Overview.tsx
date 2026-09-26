@@ -19,6 +19,7 @@ import EmptyState from '../components/common/EmptyState';
 import { useSampleFilter } from '../hooks/useSampleFilter';
 import { useSampleStore } from '../stores/sampleStore';
 import { useUiStore } from '../stores/uiStore';
+import { isLoanActive } from '../types/loan';
 import {
   CATEGORY_LABELS,
   CHEMICAL_GROUP_LABELS,
@@ -34,8 +35,14 @@ export default function Overview() {
   const finds = useSampleStore((s) => s.finds);
   const sections = useSampleStore((s) => s.sections);
   const analysis = useSampleStore((s) => s.analysis);
+  const loans = useSampleStore((s) => s.loans);
 
   const ui = useUiStore();
+
+  const loanSampleIds = useMemo(
+    () => new Set(loans.filter(isLoanActive).map((l) => l.sampleId)),
+    [loans],
+  );
 
   const findBySample = useMemo(() => new Map(finds.map((f) => [f.sampleId, f])), [finds]);
   const sectionCount = useMemo(() => {
@@ -194,6 +201,7 @@ export default function Overview() {
                 find={findBySample.get(s.id)}
                 sectionCount={sectionCount.get(s.id) ?? 0}
                 analysisCount={analysisCount.get(s.id) ?? 0}
+                onLoan={loanSampleIds.has(s.id)}
               />
             </Grid>
           ))}
